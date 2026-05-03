@@ -1,87 +1,66 @@
 import motor_ag as ag
 import random
-import matplotlib.pyplot as plt
+import time
 
-def obtener_padre_ruleta(poblacion, fitness_relativo):
-    # 1. Crear el vector de 100 lugares
+def obtener_padre_ruleta(poblacion, fitness):
     ruleta_vector = []
+    casilleros = [max(1, int(f * 100)) if f > 0 else 0 for f in fitness]#Otorga casilleros segun el fitness, validando que tengan al menos 1 cada individuo
     
-    # Calculamos cuántos lugares le toca a cada uno
-    casilleros_por_ind = []
-    for f in fitness_relativo:
-        lugares = int(f * 100)
-        # Validación: si tiene algo de fitness, al menos 1 lugar
-        if f > 0 and lugares == 0:
-            lugares = 1
-        casilleros_por_ind.append(lugares)
-    
-    # 2. Ajustar para que no sumen 101 ni 99 por redondeo
-    while sum(casilleros_por_ind) != 100:
-        index_max = casilleros_por_ind.index(max(casilleros_por_ind))
-        if sum(casilleros_por_ind) > 100:
-            casilleros_por_ind[index_max] -= 1
-        else:
-            casilleros_por_ind[index_max] += 1
+    while sum(casilleros) != 100:
+        idx = casilleros.index(max(casilleros))
+        casilleros[idx] += 1 if sum(casilleros) < 100 else -1
             
-    # 3. Llenar el vector con los índices de los individuos
-    for i in range(len(casilleros_por_ind)):
-        for _ in range(casilleros_por_ind[i]):
-            ruleta_vector.append(i)
-            
-    # 4. Tirar el número aleatorio y ver dónde cayó
-    tiro = random.randint(0, 99)
-    indice_ganador = ruleta_vector[tiro]
-    return poblacion[indice_ganador]
+    for i, cant in enumerate(casilleros):
+        ruleta_vector.extend([i] * cant)
 
-def ejecutar_opcion_a(generaciones):
+    return poblacion[ruleta_vector[random.randint(0, 99)]] #Retornamos el individuo seleccionado al azar segun la ruleta creada
+
+def ejecutar_ruleta(generaciones, elitismo=False):
+    inicio = time.time()
     poblacion = ag.crear_poblacion()
-    # Listas para el gráfico final
-    max_history, min_history, prom_history, desv_history = [], [], [], []
+    historial = []
+    mejor_global_val = float('-inf')
+    mejor_global_crom = None
 
     for g in range(generaciones):
-        # f(x) de cada uno
-        valores_decimales = [ag.binario_a_decimal(ind) for ind in poblacion]
-        f_objetivo = [ag.funcion_objetivo(d) for d in valores_decimales]
-        suma_f = sum(f_objetivo)
+        objetivos = [ag.funcion_objetivo(ag.binario_a_decimal(ind)) for ind in poblacion]
+        suma_obj = sum(objetivos)
+        fitness = [o / suma_obj if suma_obj > 0 else 1/ag.POBLACION_TAM for o in objetivos]
         
-        # Fitness relativo (porcentaje)
-        fitness = [f / suma_f if suma_f > 0 else 1/ag.POBLACION_TAM for f in f_objetivo]
+        stats = {'Gen': g+1, 'Max': max(objetivos), 'Min': min(objetivos), 
+                 'Prom': suma_obj/ag.POBLACION_TAM, 'Desv_Fit': ag.calcular_desviacion_estandar(fitness)}
+        historial.append(stats)
         
-        # Estadísticas para el cuadro
-        mejor_f = max(f_objetivo)
-        peor_f = min(f_objetivo)
-        prom_f = suma_f / ag.POBLACION_TAM
-        desv_fit = ag.calcular_desviacion_estandar(fitness)
-        mejor_crom = "".join(map(str, poblacion[f_objetivo.index(mejor_f)]))
-        
-        print(f"Gen {g+1} | Máx Obj: {mejor_f:.4f} | Min Obj: {peor_f:.4f} | Desv Fit: {desv_fit:.4f}")
-        print(f"Mejor Cromosoma: {mejor_crom}\n")
+        # Mejor cromosoma de la generación (ceros y unos) y su valor decimal
+        mejor_idx = objetivos.index(stats['Max'])
+        mejor_crom = poblacion[mejor_idx]
+        mejor_str = ''.join(str(b) for b in mejor_crom)
+        mejor_decimal = ag.binario_a_decimal(mejor_crom)
 
-        # Guardar para gráfico
-        max_history.append(mejor_f)
-        min_history.append(peor_f)
-        prom_history.append(prom_f)
-        desv_history.append(desv_fit)
+        # Actualizar mejor global si corresponde
+        if stats['Max'] > mejor_global_val:
+            mejor_global_val = stats['Max']
+            mejor_global_crom = mejor_crom[:]
 
-        # Reproducción
-        nueva_pob = []
+        print(f"Gen {g:3} | MáxGen: {stats['Max']:.6f} | Min: {stats['Min']:.6f} | Prom: {stats['Prom']:.6f} | Desv Fit: {stats['Desv_Fit']:.6f} | MejorGen: {mejor_str} ({mejor_decimal})")
+
+        nueva_pob = ag.obtener_elite(poblacion, fitness) if elitismo else []
         while len(nueva_pob) < ag.POBLACION_TAM:
-            p1 = obtener_padre_ruleta(poblacion, fitness)
-            p2 = obtener_padre_ruleta(poblacion, fitness)
+            p1, p2 = obtener_padre_ruleta(poblacion, fitness), obtener_padre_ruleta(poblacion, fitness)
             h1, h2 = ag.cruce_un_punto(p1, p2)
-            nueva_pob.append(ag.mutar_individuo(h1))
-            if len(nueva_pob) < ag.POBLACION_TAM:
-                nueva_pob.append(ag.mutar_individuo(h2))
-        poblacion = nueva_pob
+            nueva_pob.extend([ag.mutar_individuo(h1), ag.mutar_individuo(h2)])
+        poblacion = nueva_pob[:ag.POBLACION_TAM]
 
-    # Gráfico Resumen
-    plt.plot(max_history, label="Máximo Obj")
-    plt.plot(min_history, label="Mínimo Obj")
-    plt.plot(prom_history, label="Promedio Obj")
-    plt.plot(desv_history, label="Desv. Est. Fitness")
-    plt.legend()
-    plt.title("Evolución Opcion A - Ruleta Rústica")
-    plt.show()
+
+    if mejor_global_crom is not None:
+        print("\nMejor global:")
+        mg_str = ''.join(str(b) for b in mejor_global_crom)
+        mg_dec = ag.binario_a_decimal(mejor_global_crom)
+        print(f"Valor objetivo: {mejor_global_val:.6f} | Cromosoma: {mg_str} (Valor Decimal:{mg_dec})")
+    tiempo = time.time() - inicio
+    elitismo_estado = "Con Elitismo" if elitismo else "Sin Elitismo"
+    print(f"Tiempo de compilacion Ruleta {generaciones} Generaciones {elitismo_estado}: {tiempo:.4f} seg")    
+    ag.graficar_y_guardar(historial, "Ruleta", generaciones, elitismo, tiempo)
 
 if __name__ == "__main__":
-    ejecutar_opcion_a(100)
+    ejecutar_ruleta(100)
