@@ -2,11 +2,12 @@ import random
 import matplotlib.pyplot as plt
 import pandas as pd
 import os
+import datetime
 
 CANT_GENES = 30
 POBLACION_TAM = 10
 COEF = 2**30 - 1
-PROB_CROSSOVER = 0.75
+PROB_CROSSOVER = 0.05
 PROB_MUTACION = 0.05
 
 def funcion_objetivo(valor_decimal):
@@ -259,3 +260,61 @@ def generar_reporte_html(historial_reporte, metodo, generaciones, elitismo):
     """
     with open(f"graficos_resultados/{nombre}", "w", encoding="utf-8") as f:
         f.write(plantilla)
+
+def exportar_csv_generaciones(historial_stats, metodo, generaciones, elitismo):
+    """Guarda el detalle iteración por iteración para los gráficos."""
+    os.makedirs("csv_resultados", exist_ok=True)
+    estado = "Elite" if elitismo else "NoElite"
+    nombre_arch = f"csv_resultados/{metodo}_{generaciones}gen_{estado}.csv"
+    
+    df = pd.DataFrame(historial_stats)
+    df.to_csv(nombre_arch, index=False)
+    print(f"-> Datos de generaciones exportados a: {nombre_arch}")
+
+def guardar_resumen_global(
+    metodo, generaciones, elitismo, mejor_fitness, gen_alcanzado, tiempo
+):
+  """Guarda o actualiza una fila en el CSV global para la Tabla Resumen.
+
+  Si ya existe la misma combinación de Método, Iteraciones y Elitismo,
+  sobrescribe la fila con los datos de la última corrida para evitar duplicados.
+  """
+  os.makedirs("csv_resultados", exist_ok=True)
+  archivo_global = "csv_resultados/Tabla_Resumen_Final.csv"
+
+  # Obtenemos la fecha y hora de la ejecución actual
+  fecha_actual = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+  elitismo_str = "Sí" if elitismo else "No"
+
+  nueva_fila = {
+      "Método": [metodo],
+      "Iteraciones": [generaciones],
+      "Elitismo": [elitismo_str],
+      "Mejor_Fitness": [mejor_fitness],
+      "Gen_Alcanzado": [gen_alcanzado],
+      "Tiempo_seg": [tiempo],
+      "Fecha_Ejecucion": [fecha_actual],
+  }
+
+  df_nuevo = pd.DataFrame(nueva_fila)
+
+  # Si el archivo no existe, lo crea de cero con la primera fila
+  if not os.path.exists(archivo_global):
+    df_nuevo.to_csv(archivo_global, index=False)
+    print(f"-> Tabla Resumen Creada: {archivo_global}")
+  else:
+    # Si ya existe, leemos los datos históricos
+    df_existente = pd.read_csv(archivo_global)
+
+    # Combinamos el historial con la nueva ejecución
+    df_combinado = pd.concat([df_existente, df_nuevo], ignore_index=True)
+
+    # Eliminamos el registro viejo si coincide en las 3 variables clave.
+    # keep='last' garantiza que se mantenga la última corrida efectuada.
+    df_combinado = df_combinado.drop_duplicates(
+        subset=["Método", "Iteraciones", "Elitismo"], keep="last"
+    )
+
+    # Guardamos el archivo actualizado y limpio de duplicados
+    df_combinado.to_csv(archivo_global, index=False)
+    print(f"-> Tabla Resumen Actualizada (sin duplicados): {archivo_global}")
