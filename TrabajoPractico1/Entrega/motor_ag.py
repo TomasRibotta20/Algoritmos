@@ -7,7 +7,7 @@ import datetime
 CANT_GENES = 30
 POBLACION_TAM = 10
 COEF = 2**30 - 1
-PROB_CROSSOVER = 0.75
+PROB_CROSSOVER = 0.05
 PROB_MUTACION = 0.05
 
 def funcion_objetivo(valor_decimal):

@@ -1,0 +1,9 @@
+subconjunto_binario,objetos,volumen_total,valor_total,valido,es_optimo
+000,Ninguno,0,0,True,False
+001,1,1800,72,True,False
+010,2,600,36,True,False
+011,"1, 2",2400,108,True,False
+100,3,1200,60,True,False
+101,"1, 3",3000,132,True,True
+110,"2, 3",1800,96,True,False
+111,"1, 2, 3",3600,168,False,False
