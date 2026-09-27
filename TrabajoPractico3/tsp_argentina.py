@@ -1,16 +1,21 @@
-import math
 import random
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import pandas as pd
+import os
+import time
+import geopandas as gpd
+import math
+import csv
 
 # =============================================================================
 # TRABAJO PRÁCTICO N°3 - PROBLEMA DEL VIAJANTE (TSP)
 # Capitales de provincias de la República Argentina
 # =============================================================================
 
-# 23 capitales provinciales (sin CABA, que no es provincia)
-# Índice 0..22 (internamente), presentados al usuario como 1..23
+# 23 capitales provinciales (sin CABA)
+# Índice 0..22 (internamente)
 PROVINCIAS = [
     "Córdoba",               # 0
     "Corrientes",            # 1
@@ -36,8 +41,7 @@ PROVINCIAS = [
     "Ushuaia",               # 21
     "Viedma",                # 22
 ]
-
-NUM_CIUDADES = len(PROVINCIAS)   # 23
+NUM_CIUDADES = len(PROVINCIAS) # 23
 
 # Coordenadas geográficas (latitud, longitud) para graficar el mapa
 COORDENADAS = [
@@ -66,46 +70,30 @@ COORDENADAS = [
     (-40.8135, -62.9967),   # 22 Viedma
 ]
 
-# ─────────────────────────────────────────────────────────────────────────────
-# MATRIZ DE DISTANCIAS (en km, en línea recta)
-# Fuente: Tabla de Distancias proporcionada en el enunciado del TP.
-# ─────────────────────────────────────────────────────────────────────────────
-#  Orden de las ciudades (columnas y filas):
-#   0-COR  1-CTS  2-FOR  3-LP   4-LR   5-MZA  6-NQN  7-PAR  8-POS  9-RAW
-#  10-RES 11-RG  12-CAT 13-TUC 14-JUJ 15-SAL 16-SJ  17-SL  18-SF  19-SR
-#  20-SGO 21-USH 22-VMA
-# ─────────────────────────────────────────────────────────────────────────────
+def cargar_matriz_desde_csv(ruta_archivo):
+    try:
+        df = pd.read_csv(ruta_archivo)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"No se encontró '{ruta_archivo}'.")
+    except Exception:
+        raise ValueError(f"'{ruta_archivo}' no pudo leerse como CSV.")
+    try:
+        df = df.iloc[1:24, :]
+        df = df.drop(columns=df.columns[0])
+        df = df.drop(columns=df.columns[0])
+        df = df.fillna(0)
+        matriz = df.to_numpy(dtype=float)
+    except Exception:
+        raise ValueError("El CSV no tiene el formato esperado (24 filas × 25 columnas).")
 
-DISTANCIAS = [
-    #  COR   CTS   FOR    LP    LR   MZA   NQN   PAR   POS   RAW   RES    RG   CAT   TUC   JUJ   SAL    SJ    SL    SF    SR   SGO   USH   VMA
-    [    0,  677,  824,  698,  340,  466,  907,  348,  919, 1321,  669, 2281,  362,  517,  809,  745,  412,  293,  330,  577,  401, 2618, 1047],  #  0 Córdoba
-    [  677,    0,  157,  830,  814, 1131, 1534,  500,  291, 1845,   13, 2819,  691,  633,  742,  719, 1039,  969,  498, 1136,  535, 3131, 1532],  #  1 Corrientes
-    [  824,  157,    0,  968,  927, 1269, 1690,  656,  263, 1999,  161, 2974,  793,  703,  750,  741, 1119, 1117,  654, 1293,  629, 3284, 1681],  #  2 Formosa
-    [  698,  830,  968,    0, 1038, 1029, 1005,  427,  857, 1116,  833, 2064, 1030, 1132, 1385, 1333, 1053,  795,  444,  601,  991, 2350,  789],  #  3 La Plata
-    [  340,  814,  927, 1038,    0,  427, 1063,  659, 1053, 1548,  802, 2473,  149,  330,  600,  533,  283,  435,  640,  834,  311, 2811, 1311],  #  4 La Rioja
-    [  466, 1131, 1269, 1029,  427,    0,  676,  790, 1306, 1201, 1121, 2081,  569,  756, 1023,  957,  152,  265,  775,  586,  705, 2435, 1019],  #  5 Mendoza
-    [  907, 1534, 1690, 1005, 1063,  676,    0, 1053, 1709,  543, 1530, 1412, 1184, 1374, 1662, 1595,  826,  648, 1052,  421, 1289, 1763,  479],  #  6 Neuquén
-    [  348,  500,  656,  427,  659,  790, 1053,    0,  658, 1345,  498, 2320,  622,  707,  959,  906,  757,  574,   19,  642,  566, 2635, 1030],  #  7 Paraná
-    [  919,  291,  263,  857, 1053, 1306, 1709,  658,    0, 1951,  305, 2914,  979,  924, 1007,  992, 1306, 1200,  664, 1293,  827, 3207, 1624],  #  8 Posadas
-    [ 1321, 1845, 1999, 1116, 1548, 1201,  543, 1345, 1951,    0, 1843,  975, 1647, 1832, 2120, 2054, 1340, 1113, 1349,  745, 1721, 1300,  327],  #  9 Rawson
-    [  669,   13,  161,  833,  802, 1121, 1530,  498,  305, 1843,    0, 2818,  678,  620,  729,  706, 1029,  958,  495, 1132,  521, 3131, 1526],  # 10 Resistencia
-    [ 2281, 2819, 2974, 2064, 2473, 2081, 1412, 2320, 2914,  975, 2818,    0, 2587, 2773, 3063, 2997, 2231, 2046, 2325, 1712, 2677, 1359, 1294],  # 11 Río Gallegos
-    [  362,  691,  793, 1030,  149,  569, 1184,  622,  979, 1647,  678, 2587,    0,  189,  477,  410,  430,  540,  602,  915,  166, 2931, 1391],  # 12 Catamarca
-    [  517,  633,  703, 1132,  330,  756, 1374,  707,  924, 1832,  620, 2773,  189,    0,  293,  228,  612,  727,  689, 1088,  141, 3116, 1562],  # 13 Tucumán
-    [  809,  742,  750, 1385,  600, 1023, 1662,  959, 1007, 2120,  729, 3063,  477,  293,    0,   67,  874, 1017,  942, 1382,  414, 3408, 1855],  # 14 Jujuy
-    [  745,  719,  741, 1333,  533,  957, 1595,  906,  992, 2054,  706, 2997,  410,  228,   67,    0,  808,  950,  889, 1316,  353, 3341, 1790],  # 15 Salta
-    [  412, 1039, 1119, 1053,  283,  152,  826,  757, 1306, 1340, 1029, 2231,  430,  612,  874,  808,    0,  284,  740,  686,  583, 2585, 1141],  # 16 San Juan
-    [  293,  969, 1117,  795,  435,  265,  648,  574, 1200, 1113,  958, 2046,  540,  727, 1017,  950,  284,    0,  560,  412,  643, 2392,  882],  # 17 San Luis
-    [  330,  498,  654,  444,  640,  775, 1052,   19,  664, 1349,  495, 2325,  602,  689,  942,  889,  740,  560,    0,  641,  547, 2641, 1035],  # 18 Santa Fe
-    [  577, 1136, 1293,  601,  834,  586,  421,  642, 1293,  745, 1132, 1712,  915, 1088, 1382, 1316,  686,  412,  641,    0,  977, 2044,  477],  # 19 Santa Rosa
-    [  401,  535,  629,  991,  311,  705, 1289,  566,  827, 1721,  521, 2677,  166,  141,  414,  353,  583,  643,  547,  977,    0, 3016, 1446],  # 20 Sgo. del Estero
-    [ 2618, 3131, 3284, 2350, 2811, 2435, 1763, 2635, 3207, 1300, 3131, 1359, 2931, 3116, 3408, 3341, 2585, 2392, 2641, 2044, 3016,    0, 1605],  # 21 Ushuaia
-    [ 1047, 1532, 1681,  789, 1311, 1019,  479, 1030, 1624,  327, 1526, 1294, 1391, 1562, 1855, 1790, 1141,  882, 1035,  477, 1446, 1605,    0],  # 22 Viedma
-]
+    if matriz.shape != (23, 23):
+        raise ValueError(f"Se esperaba 23×23 pero se obtuvo {matriz.shape}.")
+    return matriz
+    
+DIRECTORIO_ACTUAL = os.path.dirname(os.path.abspath(__file__))
+ARCHIVO_CSV = os.path.join(DIRECTORIO_ACTUAL, "distancias.csv")
 
-# Convertir a numpy array para comodidad
-matriz_distancias = np.array(DISTANCIAS, dtype=float)
-
+matriz_distancias = cargar_matriz_desde_csv(ARCHIVO_CSV)
 
 # =============================================================================
 # FUNCIONES AUXILIARES
@@ -123,27 +111,12 @@ def longitud_ruta(ruta):
 
 def graficar_ruta(ruta, titulo):
     """Grafica la ruta sobre un mapa esquemático de Argentina."""
-    fig, ax = plt.subplots(figsize=(10, 14))
+    fix, ax = plt.subplots(figsize=(10, 14))
+    ruta_mapa = os.path.join(DIRECTORIO_ACTUAL, "datos_mapa", "ne_110m_admin_0_countries.shp")
+    mundo = gpd.read_file(ruta_mapa)
+    argentina = mundo[mundo["NAME"] == "Argentina"]
+    argentina.plot(ax=ax, color="#e8f5e9", edgecolor="#388e3c")
 
-    # Dibujar contorno simplificado de Argentina
-    contorno_lon = [
-        -57.5, -55.0, -54.0, -55.5, -57.5, -58.5, -59.0, -58.0,
-        -57.5, -57.0, -59.0, -62.0, -63.5, -65.5, -65.0, -64.0,
-        -62.0, -62.5, -65.0, -67.0, -68.0, -69.5, -70.5, -71.5,
-        -71.0, -70.0, -69.5, -69.0, -68.5, -68.0, -67.5, -66.0,
-        -65.5, -64.5, -64.0, -62.0, -59.0, -57.5
-    ]
-    contorno_lat = [
-        -22.0, -23.5, -25.5, -27.0, -29.0, -30.0, -32.0, -34.0,
-        -35.5, -36.5, -38.0, -39.0, -40.0, -41.0, -42.5, -44.0,
-        -45.0, -47.0, -49.0, -50.0, -51.0, -52.0, -53.0, -52.5,
-        -50.0, -47.0, -44.0, -42.0, -40.0, -38.0, -35.0, -33.0,
-        -30.0, -27.0, -25.0, -23.5, -23.0, -22.0
-    ]
-    ax.fill(contorno_lon, contorno_lat, color='#e8f5e9', alpha=0.5)
-    ax.plot(contorno_lon, contorno_lat, color='#388e3c', linewidth=1.5, alpha=0.7)
-
-    # Dibujar la ruta
     lons = [COORDENADAS[i][1] for i in ruta] + [COORDENADAS[ruta[0]][1]]
     lats = [COORDENADAS[i][0] for i in ruta] + [COORDENADAS[ruta[0]][0]]
 
@@ -151,14 +124,11 @@ def graficar_ruta(ruta, titulo):
             markersize=6, linewidth=1.8, zorder=3, label="Recorrido")
     ax.plot(lons[0], lats[0], marker='*', color='red', markersize=16,
             zorder=5, label=f"Inicio/Fin: {PROVINCIAS[ruta[0]]}")
-
-    # Etiquetas de las ciudades
     for i in ruta:
         ax.annotate(PROVINCIAS[i],
                      (COORDENADAS[i][1], COORDENADAS[i][0]),
                      textcoords="offset points", xytext=(8, 4),
                      fontsize=7, color='#212121')
-
     dist = longitud_ruta(ruta)
     ax.set_title(f"{titulo}\nDistancia Total: {dist:.2f} km", fontsize=12, fontweight='bold')
     ax.set_xlabel("Longitud")
@@ -169,7 +139,76 @@ def graficar_ruta(ruta, titulo):
     plt.tight_layout()
     plt.show()
 
+# =============================================================================
+# EJERCICIO 1 – Método exhaustivo
+# =============================================================================
 
+def _generar_rutas(ciudades_restantes, ruta_actual, todas_las_rutas):
+    """Función auxiliar recursiva que genera todas las permutaciones."""
+    if not ciudades_restantes:
+        todas_las_rutas.append(ruta_actual[:])
+        return
+    for i, ciudad in enumerate(ciudades_restantes):
+        ruta_actual.append(ciudad)
+        _generar_rutas(
+            ciudades_restantes[:i] + ciudades_restantes[i+1:],
+            ruta_actual,
+            todas_las_rutas
+        )
+        ruta_actual.pop()
+
+
+def busqueda_exhaustiva(n_ciudades):
+    """Genera todas las rutas posibles y devuelve la mejor."""
+    todas_las_rutas = []
+    _generar_rutas(list(range(1, n_ciudades)), [0], todas_las_rutas)
+
+    mejor_ruta = None
+    mejor_dist = float('inf')
+    for ruta in todas_las_rutas:
+        dist = longitud_ruta(ruta)
+        if dist < mejor_dist:
+            mejor_dist = dist
+            mejor_ruta = ruta
+
+    return mejor_ruta, mejor_dist, len(todas_las_rutas)
+
+
+def demostrar_inviabilidad():
+    """Ejecuta el exhaustivo para N creciente"""
+    
+    print("=" * 60)
+    print("  BÚSQUEDA EXHAUSTIVA – Análisis de viabilidad")
+    print("=" * 60)
+    print(f"  {'N':>4}  {'Rutas':>12}  {'Tiempo':>12}")
+    print(f"  {'-'*4}  {'-'*12}  {'-'*12}")
+
+    ultimo_tiempo = None
+    ultimo_n = None
+    resultados = []
+    for n in range(5, 12):
+        inicio = time.time()
+        _, _, total_rutas = busqueda_exhaustiva(n)
+        tiempo = time.time() - inicio
+
+        print(f"  {n:>4}  {total_rutas:>12,}  {tiempo:>11.4f}s")
+        
+        resultados.append((n, total_rutas, tiempo))
+        ultimo_tiempo = tiempo
+        ultimo_n = n
+
+    # Extrapolación: de ultimo_n a 23
+    # La diferencia en rutas es (22! / (ultimo_n - 1)!)
+    factor = math.factorial(22) // math.factorial(ultimo_n - 1)
+    tiempo_estimado_s = ultimo_tiempo * factor
+    tiempo_estimado_años = tiempo_estimado_s / (60 * 60 * 24 * 365)
+    print(f"\n  Rutas para N=23:  {math.factorial(22):,}")
+    print(f"  Tiempo estimado:  {tiempo_estimado_años:.2e} años")
+    print(f"\n  Conclusión: el método exhaustivo es computacionalmente")
+    print(f"  inviable para 23 ciudades. Se requieren heurísticas.")
+    print("=" * 60)
+
+    return resultados
 
 # =============================================================================
 # EJERCICIO 2a – HEURÍSTICA VECINO MÁS CERCANO
@@ -181,7 +220,6 @@ def vecino_mas_cercano(inicio):
     visitadas = [inicio]
     actual = inicio
     ciudades_restantes = set(range(NUM_CIUDADES)) - {inicio}
-
     while ciudades_restantes:
         siguiente = min(ciudades_restantes,
                         key=lambda x: matriz_distancias[actual][x])
@@ -191,10 +229,47 @@ def vecino_mas_cercano(inicio):
 
     return visitadas
 
+# =============================================================================
+# EJERCICIO 2b – Mejor recorrido global
+# =============================================================================
+
+def mejor_ruta_global():
+    """Prueba todas las ciudades como inicio y devuelve la mejor ruta."""
+    mejor_ruta = None
+    mejor_distancia = float('inf')
+    resultados = []
+    for i in range(NUM_CIUDADES):
+        ruta = vecino_mas_cercano(i)
+        dist = longitud_ruta(ruta)
+        resultados.append((PROVINCIAS[i], dist))
+        if dist < mejor_distancia:
+            mejor_distancia = dist
+            mejor_ruta = ruta
+
+    return mejor_ruta, mejor_distancia, resultados  
 
 # =============================================================================
 # EJERCICIO 2c – ALGORITMO GENÉTICO
 # =============================================================================
+
+def construir_ruleta(probs):
+    casilleros = [max(1, int(f * 100)) for f in probs]
+    
+    while sum(casilleros) != 100:
+        idx = casilleros.index(max(casilleros))
+        casilleros[idx] += 1 if sum(casilleros) < 100 else -1
+    ruleta_vector = []
+    
+    for i, cant in enumerate(casilleros):
+        ruleta_vector.extend([i] * cant)
+
+    return ruleta_vector
+
+
+def obtener_padre_ruleta(poblacion, ruleta_vector):
+    idx = ruleta_vector[random.randint(0, 99)]
+    return poblacion[idx]
+
 
 def cyclic_crossover(p1, p2):
     """Crossover cíclico (CX): crea dos hijos a partir de dos padres."""
@@ -209,7 +284,6 @@ def cyclic_crossover(p1, p2):
     while len(visitados) < n:
         if idx in visitados:
             idx = next(i for i in range(n) if i not in visitados)
-
         ciclo = []
         inicio = idx
         while True:
@@ -235,7 +309,7 @@ def cyclic_crossover(p1, p2):
 
 
 def mutacion(individuo, tasa_mutacion=0.1):
-    """Mutación por intercambio (swap) de dos genes."""
+    """Mutación por intercambio de dos genes."""
     if random.random() < tasa_mutacion:
         idx1, idx2 = random.sample(range(len(individuo)), 2)
         individuo[idx1], individuo[idx2] = individuo[idx2], individuo[idx1]
@@ -243,8 +317,7 @@ def mutacion(individuo, tasa_mutacion=0.1):
 
 
 def algoritmo_genetico(N=50, M=200, tasa_crossover=0.8, tasa_mutacion=0.1):
-    """
-    Algoritmo genético para el TSP.
+    """Algoritmo genético para el TSP.
 
     Parámetros
     ----------
@@ -257,15 +330,14 @@ def algoritmo_genetico(N=50, M=200, tasa_crossover=0.8, tasa_mutacion=0.1):
     -------
     mejor_ruta_global : list – La mejor ruta encontrada.
     """
-    # Población inicial: permutaciones aleatorias
     poblacion = [random.sample(range(NUM_CIUDADES), NUM_CIUDADES)
                  for _ in range(N)]
 
     mejor_ruta_global = None
     mejor_distancia_global = float('inf')
+    historial = []
 
     for _ciclo in range(M):
-        # Evaluar fitness (1 / distancia)
         distancias = [longitud_ruta(ind) for ind in poblacion]
 
         for ind, dist in zip(poblacion, distancias):
@@ -273,40 +345,36 @@ def algoritmo_genetico(N=50, M=200, tasa_crossover=0.8, tasa_mutacion=0.1):
                 mejor_distancia_global = dist
                 mejor_ruta_global = ind.copy()
 
+        historial.append((_ciclo + 1, mejor_distancia_global))
+
         fitness = [1.0 / d for d in distancias]
         total_fitness = sum(fitness)
         probs = [f / total_fitness for f in fitness]
 
-        # --- Selección y reproducción ---
         nueva_poblacion = []
 
-        # Elitismo: mantener al mejor individuo
         mejor_idx = distancias.index(min(distancias))
         nueva_poblacion.append(poblacion[mejor_idx].copy())
 
         while len(nueva_poblacion) < N:
-            # Selección por ruleta
-            p1 = poblacion[np.random.choice(N, p=probs)]
-            p2 = poblacion[np.random.choice(N, p=probs)]
+            ruleta_vector = construir_ruleta(probs)
+            p1 = obtener_padre_ruleta(poblacion, ruleta_vector)
+            p2 = obtener_padre_ruleta(poblacion, ruleta_vector)
 
-            # Crossover cíclico (con probabilidad tasa_crossover)
             if random.random() < tasa_crossover:
                 hijo1, hijo2 = cyclic_crossover(p1, p2)
             else:
                 hijo1 = list(p1)
                 hijo2 = list(p2)
-
-            # Mutación
             hijo1 = mutacion(hijo1, tasa_mutacion)
             hijo2 = mutacion(hijo2, tasa_mutacion)
-
             nueva_poblacion.append(hijo1)
             if len(nueva_poblacion) < N:
                 nueva_poblacion.append(hijo2)
 
         poblacion = nueva_poblacion
 
-    return mejor_ruta_global
+    return mejor_ruta_global, historial
 
 
 # =============================================================================
@@ -315,6 +383,7 @@ def algoritmo_genetico(N=50, M=200, tasa_crossover=0.8, tasa_mutacion=0.1):
 
 def imprimir_ruta(ruta):
     """Imprime la ruta completa con nombres y regreso a la ciudad de partida."""
+    
     recorrido = " -> ".join(PROVINCIAS[i] for i in ruta)
     recorrido += f" -> {PROVINCIAS[ruta[0]]}"
     print(f"\n  Ciudad de partida : {PROVINCIAS[ruta[0]]}")
@@ -324,19 +393,34 @@ def imprimir_ruta(ruta):
 
 def menu():
     while True:
-        print("\n╔══════════════════════════════════════════════════════════╗")
-        print("║   MENÚ – PROBLEMA DEL VIAJANTE (TSP) – ARGENTINA       ║")
-        print("╠══════════════════════════════════════════════════════════╣")
-        print("║  a) Vecino más cercano desde una ciudad elegida         ║")
-        print("║  b) Mejor recorrido global (vecino más cercano)         ║")
-        print("║  c) Algoritmo Genético (N=50, M=200, CX cíclico)       ║")
-        print("║  d) Salir                                               ║")
-        print("╚══════════════════════════════════════════════════════════╝")
+        print("\n|----------------------------------------------------------|")
+        print("|   MENÚ – PROBLEMA DEL VIAJANTE (TSP) – ARGENTINA         |")
+        print("|----------------------------------------------------------|")
+        print("|  1) Ejercicio 1 – Método Exhaustivo (Justificación)      |")
+        print("|  2) Ejercicio 2a – Vecino más cercano desde una ciudad   |")
+        print("|  3) Ejercicio 2b – Mejor recorrido global (heurística)   |")
+        print("|  4) Ejercicio 2c  – Algoritmo Genético (N=50, M=200)     |")
+        print("|  0) Salir                                                |")
+        print("|----------------------------------------------------------|")
 
         opcion = input("  Seleccione una opción: ").strip().lower()
 
-        # ── Opción A ──────────────────────────────────────────────────
-        if opcion == 'a':
+        # Ejercicio 1 --------------------------------------------------
+        if opcion == '1':
+            resultados = demostrar_inviabilidad()
+
+            # ====== Exporta a CSV =====================================
+            with open("exhaustivo.csv", "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["N", "Rutas", "Tiempo (s)"])
+                for n, rutas, tiempo in resultados:
+                    writer.writerow([n, rutas, f"{tiempo:.6f}"])
+                writer.writerow([23, math.factorial(22), "estimado"])
+            print("  Exportado a exhaustivo.csv")
+            # ==========================================================
+
+        # Ejercicio 2a --------------------------------------------------
+        elif opcion == '2':
             print("\n  Capitales disponibles:")
             for i in range(NUM_CIUDADES):
                 print(f"    {i + 1:>2}. {PROVINCIAS[i]}")
@@ -346,55 +430,85 @@ def menu():
                 if 0 <= inicio < NUM_CIUDADES:
                     ruta = vecino_mas_cercano(inicio)
                     imprimir_ruta(ruta)
-                    graficar_ruta(ruta,
-                                 f"Heurística Vecino Más Cercano\n"
-                                 f"(Inicio: {PROVINCIAS[inicio]})")
+                    graficar_ruta(ruta, f"Heurística Vecino Más Cercano\n" f"(Inicio: {PROVINCIAS[inicio]})")
+
+                    # ====== Exporta a CSV =====================================
+                    acumulada = 0
+                    with open("heuristica_2a.csv", "w", newline="", encoding="utf-8") as f:
+                        writer = csv.writer(f)
+                        writer.writerow(["Orden", "Ciudad", "Distancia Acumulada (km)"])
+                        writer.writerow([1, PROVINCIAS[ruta[0]], f"{acumulada:.2f}"])
+                        for i in range(1, len(ruta)):
+                            acumulada += matriz_distancias[ruta[i-1]][ruta[i]]
+                            writer.writerow([i+1, PROVINCIAS[ruta[i]], f"{acumulada:.2f}"])
+                        acumulada += matriz_distancias[ruta[-1]][ruta[0]]
+                        writer.writerow(["Regreso", PROVINCIAS[ruta[0]], f"{acumulada:.2f}"])
+                    print("  Exportado a heuristica_2a.csv")
+                    # ==========================================================
                 else:
                     print("  Número fuera de rango.")
             except ValueError:
                 print("  Entrada inválida.")
 
-        # ── Opción B ──────────────────────────────────────────────────
-        elif opcion == 'b':
+        # Ejercicio 2b --------------------------------------------------
+        elif opcion == '3':
             print("\n  Buscando el recorrido mínimo probando cada ciudad como inicio...")
-            mejor_ruta = None
-            mejor_distancia = float('inf')
-
-            for i in range(NUM_CIUDADES):
-                ruta = vecino_mas_cercano(i)
-                dist = longitud_ruta(ruta)
-                if dist < mejor_distancia:
-                    mejor_distancia = dist
-                    mejor_ruta = ruta
-
-            print("\n  ═══ MEJOR RECORRIDO GLOBAL (Vecino Más Cercano) ═══")
+            mejor_ruta, mejor_distancia, resultados = mejor_ruta_global()
+            print("\n  --- MEJOR RECORRIDO GLOBAL (Vecino Más Cercano) ---")
             imprimir_ruta(mejor_ruta)
             graficar_ruta(mejor_ruta, "Mejor Ruta Global – Vecino Más Cercano")
 
-        # ── Opción C ──────────────────────────────────────────────────
-        elif opcion == 'c':
+            # ====== Exporta a CSV =====================================
+            with open("heuristica_2b.csv", "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                
+                writer.writerow(["Ciudad Inicio", "Distancia Total (km)"])
+                for ciudad, dist in resultados:
+                    writer.writerow([ciudad, f"{dist:.2f}"])
+                writer.writerow(["MEJOR", f"{mejor_distancia:.2f}"])
+                
+                writer.writerow([])
+                writer.writerow(["--- RECORRIDO DE LA MEJOR RUTA ---"])
+                
+                writer.writerow(["Orden", "Ciudad", "Distancia Acumulada (km)"])
+                acumulada = 0
+                writer.writerow([1, PROVINCIAS[mejor_ruta[0]], f"{acumulada:.2f}"])
+                for i in range(1, len(mejor_ruta)):
+                    acumulada += matriz_distancias[mejor_ruta[i-1]][mejor_ruta[i]]
+                    writer.writerow([i+1, PROVINCIAS[mejor_ruta[i]], f"{acumulada:.2f}"])
+                acumulada += matriz_distancias[mejor_ruta[-1]][mejor_ruta[0]]
+                writer.writerow(["Regreso", PROVINCIAS[mejor_ruta[0]], f"{acumulada:.2f}"])
+            print("  Exportado a heuristica_2b.csv")
+            # ==========================================================
+        # Ejercicio 2c  --------------------------------------------------
+        elif opcion == '4':
             print("\n  Ejecutando Algoritmo Genético...")
             print("    N (población)    = 50")
             print("    M (generaciones) = 200")
             print("    Crossover cíclico, tasa = 0.8")
             print("    Mutación (swap),  tasa = 0.1")
             print()
-
-            ruta_ga = algoritmo_genetico(N=50, M=200,
-                                         tasa_crossover=0.8,
-                                         tasa_mutacion=0.1)
-            print("  ═══ RESULTADO ALGORITMO GENÉTICO ═══")
+            
+            ruta_ga, historial_ga = algoritmo_genetico(N=50, M=200, tasa_crossover=0.8, tasa_mutacion=0.1)
+            
+            print("  --- RESULTADO ALGORITMO GENÉTICO ---")
             imprimir_ruta(ruta_ga)
-            graficar_ruta(ruta_ga,
-                          "Algoritmo Genético (N=50, M=200, CX Cíclico)")
+            graficar_ruta(ruta_ga, "Algoritmo Genético (N=50, M=200, CX Cíclico)")
 
-        # ── Opción D ──────────────────────────────────────────────────
-        elif opcion == 'd':
+            # ====== Exporta a CSV =====================================
+            with open("genetico.csv", "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["Generación", "Mejor Distancia (km)"])
+                for gen, dist in historial_ga:
+                    writer.writerow([gen, f"{dist:.2f}"])
+            print("  Exportado a genetico.csv")
+            # ==========================================================
+        # Salir --------------------------------------------------
+        elif opcion == '0':
             print("\n  Saliendo del programa...")
             break
         else:
             print("  Opción no válida. Intente nuevamente.")
-
 
 # =============================================================================
 if __name__ == "__main__":
