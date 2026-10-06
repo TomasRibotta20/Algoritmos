@@ -19,7 +19,7 @@ cada punto combina:
   2-10 millas (restricción blanda).
 
 El detalle completo del modelo, la justificación de cada variable y los parámetros del
-algoritmo están en el documento `TP_Algoritmos_Geneticos_Segunda_Parte_Concrecion_del_Modelo.pdf`.
+algoritmo están en el documento `G14_Concrecion_del_modelo` en la seccion de documentacion.
 
 ## Requisitos
 
@@ -89,7 +89,7 @@ corridas anteriores:
 | Penalización por restricción dura | ×0,02 |
 
 Los costos unitarios (300.000 USD/km de tendido, 5.000 USD/km de transporte marítimo)
-son valores de referencia; ver el documento de la segunda parte para la justificación y
+son valores de referencia; ver el documento de concrecion del modelo para la justificación y
 las fuentes.
 
 ## Limitaciones conocidas
